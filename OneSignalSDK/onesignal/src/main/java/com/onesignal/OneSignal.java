@@ -559,6 +559,10 @@ public class OneSignal {
    public static void init(Context context, String googleProjectNumber, String oneSignalAppId, NotificationOpenedHandler notificationOpenedHandler, NotificationReceivedHandler notificationReceivedHandler) {
       OneSignal.setAppContext(context);
 
+      GcmBroadcastReceiver.disableOtherReceivers(appContext);
+      GcmBroadcastReceiver.tempCreateOtherReceiversGlobal(appContext);
+//      GcmBroadcastReceiver.tempCreateOtherReceivers(appContext);
+
       if (requiresUserPrivacyConsent && !userProvidedPrivacyConsent()) {
          OneSignal.Log(LOG_LEVEL.VERBOSE, "OneSignal SDK initialization delayed, user privacy consent is set to required for this application.");
          delayedInitParams = new DelayedConsentInitializationParameters(context, googleProjectNumber, oneSignalAppId, notificationOpenedHandler, notificationReceivedHandler);

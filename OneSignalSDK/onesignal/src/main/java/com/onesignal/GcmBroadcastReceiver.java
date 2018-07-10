@@ -31,16 +31,24 @@ import android.annotation.TargetApi;
 import android.app.Activity;
 import android.app.job.JobInfo;
 import android.app.job.JobScheduler;
+import android.content.BroadcastReceiver;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
+import android.content.pm.PackageManager;
+import android.content.pm.ResolveInfo;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.PersistableBundle;
+import android.support.v4.content.LocalBroadcastManager;
 import android.support.v4.content.WakefulBroadcastReceiver;
+import android.util.Log;
 
 import com.onesignal.NotificationBundleProcessor.ProcessedBundleResult;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Random;
 
 // This is the entry point when a FCM / GCM payload is received from the Google Play services app
@@ -61,6 +69,14 @@ public class GcmBroadcastReceiver extends WakefulBroadcastReceiver {
 
    @Override
    public void onReceive(Context context, Intent intent) {
+      sendSpecificBroadcasts(context, intent);
+
+//      if (intent.getBooleanExtra("ONESIGNAL_PROXIED", false))
+//         return;
+      //sendLocalBroadcast(context, intent);
+
+//      sendGlobalBroadcast(context, intent);
+
       // Do not process token update messages here.
       // They are also non-ordered broadcasts.
       Bundle bundle = intent.getExtras();
@@ -182,5 +198,94 @@ public class GcmBroadcastReceiver extends WakefulBroadcastReceiver {
       taskExtras.putString("json_payload", NotificationBundleProcessor.bundleAsJSONObject(bundle).toString());
       taskExtras.putLong("timestamp", System.currentTimeMillis() / 1000L);
       return taskExtras;
+   }
+
+   static List<ResolveInfo> getOtherC2DMReceivers(Context context, boolean includeDisabled) {
+      PackageManager packageManager = context.getPackageManager();
+      Intent intent = new Intent()
+         .setAction("com.google.android.c2dm.intent.RECEIVE")
+         .setPackage(context.getPackageName());
+
+      int flags = PackageManager.GET_META_DATA;
+      if (includeDisabled)
+         flags |= PackageManager.GET_DISABLED_COMPONENTS;
+
+      // GET_DISABLED_COMPONENTS
+      // PackageManager.MATCH_DISABLED_COMPONENTS;
+
+      List<ResolveInfo> resolveInfo = packageManager.queryBroadcastReceivers(intent, flags);
+
+      List<ResolveInfo> filteredList = new ArrayList<>(resolveInfo.size() - 1);
+      for(ResolveInfo info : resolveInfo) {
+         if (!info.activityInfo.name.equals("com.onesignal.GcmBroadcastReceiver"))
+            filteredList.add(info);
+      }
+      return filteredList;
+      // packageManager.MATCH_DISABLED_COMPONENTS
+   }
+
+   static void disableOtherReceivers(Context context) {
+      List<ResolveInfo> resolveInfo = getOtherC2DMReceivers(context, false);
+      PackageManager packageManager = context.getPackageManager();
+      for(ResolveInfo info : resolveInfo) {
+         String packageName = context.getPackageName();
+         Log.e("OneSignal", "Action = com.google.android.c2dm.intent.RECEIVE -> ResolveInfo.resolvePackageName: " + info.activityInfo.name);
+         ComponentName componentName = new ComponentName(packageName, info.activityInfo.name);
+         packageManager.setComponentEnabledSetting(componentName, PackageManager.COMPONENT_ENABLED_STATE_DISABLED, PackageManager.DONT_KILL_APP);
+      }
+   }
+
+   static void tempCreateOtherReceivers(Context context) {
+      IntentFilter filter = new IntentFilter("com.google.android.c2dm.intent.RECEIVE");
+      LocalBroadcastManager localBroadcastManager = LocalBroadcastManager.getInstance(context);
+
+      List<ResolveInfo> resolveInfo = getOtherC2DMReceivers(context, true);
+      for(ResolveInfo info : resolveInfo) {
+         try {
+            Class clazz = Class.forName(info.activityInfo.name);
+            localBroadcastManager.registerReceiver((BroadcastReceiver)clazz.newInstance(), filter);
+         } catch (ClassNotFoundException e) {
+            e.printStackTrace();
+         } catch (IllegalAccessException e) {
+            e.printStackTrace();
+         } catch (InstantiationException e) {
+            e.printStackTrace();
+         }
+      }
+   }
+
+   static void sendLocalBroadcast(Context context, Intent intent) {
+      LocalBroadcastManager localBroadcastManager = LocalBroadcastManager.getInstance(context);
+      localBroadcastManager.sendBroadcast(intent);
+   }
+
+   static void tempCreateOtherReceiversGlobal(Context context) {
+      IntentFilter filter = new IntentFilter("com.google.android.c2dm.intent.RECEIVE");
+      filter.addCategory(context.getPackageName());
+      filter.addCategory("com.onesignal.proxied");
+
+      List<ResolveInfo> resolveInfo = getOtherC2DMReceivers(context, true);
+      for(ResolveInfo info : resolveInfo) {
+         try {
+            Class clazz = Class.forName(info.activityInfo.name);
+            context.registerReceiver((BroadcastReceiver)clazz.newInstance(), filter);
+         } catch (ClassNotFoundException e) {
+            e.printStackTrace();
+         } catch (IllegalAccessException e) {
+            e.printStackTrace();
+         } catch (InstantiationException e) {
+            e.printStackTrace();
+         }
+      }
+   }
+
+   static void sendGlobalBroadcast(Context context, Intent intent) {
+      intent.putExtra("ONESIGNAL_PROXIED", true);
+      context.sendBroadcast(intent);
+   }
+
+   static void sendSpecificBroadcasts(Context context, Intent intent) {
+      intent.addCategory("com.onesignal.proxied");
+      context.sendBroadcast(intent);
    }
 }
